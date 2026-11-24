@@ -13,6 +13,7 @@ import {
   parseExamFileInBrowser,
   parseExamFromRawText,
 } from '../lib/localExamParser';
+import { trackUsage } from '../lib/usageTracker';
 
 interface UploadWorkspaceProps {
   onExamLoaded: (data: ParsedExamData) => void;
@@ -138,6 +139,7 @@ export const UploadWorkspace: React.FC<UploadWorkspaceProps> = ({
         try {
           setStatusMessage(`Membaca ${file.name} langsung di browser...`);
           const localParsed = await parseExamFileInBrowser(file);
+          trackUsage('parse_exam', file.name);
           onExamLoaded(localParsed);
           return;
         } catch (localErr: any) {
@@ -181,6 +183,7 @@ export const UploadWorkspace: React.FC<UploadWorkspaceProps> = ({
               'Tidak ada butir soal bernomor yang terdeteksi. Pastikan tiap soal diawali nomor (misalnya: 1. Pertanyaan...).'
             );
           }
+          trackUsage('parse_exam', 'Tempelan_Soal.txt');
           onExamLoaded(localParsed);
           return;
         } catch (localErr: any) {

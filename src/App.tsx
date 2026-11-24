@@ -281,7 +281,11 @@ export default function App() {
             )}
 
             {activeTab === 'matrix' && (
-              <AnswerMatrixView exam={examData} variants={variants} />
+              <AnswerMatrixView
+                exam={examData}
+                variants={variants}
+                onUpdateExam={setExamData}
+              />
             )}
           </main>
         </div>

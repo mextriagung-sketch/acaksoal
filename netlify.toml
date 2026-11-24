@@ -1,6 +1,17 @@
 [build]
   command = "npm run build"
   publish = "dist"
+  functions = "netlify/functions"
 
 [build.environment]
   NODE_VERSION = "22"
+
+[[redirects]]
+  from = "/api/usage"
+  to = "/.netlify/functions/usage"
+  status = 200
+
+[[redirects]]
+  from = "/api/usage/track"
+  to = "/.netlify/functions/usage"
+  status = 200
