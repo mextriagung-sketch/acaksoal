@@ -6,6 +6,7 @@ import {
   buildMasterKeyPdfBlob,
   triggerBlobDownload,
 } from '../lib/exporters';
+import { trackUsage } from '../lib/usageTracker';
 
 interface AnswerMatrixViewProps {
   exam: ParsedExamData;
@@ -20,6 +21,7 @@ export const AnswerMatrixView: React.FC<AnswerMatrixViewProps> = ({ exam, varian
   const handleDownloadPdf = () => {
     const blob = buildMasterKeyPdfBlob(exam, variants);
     triggerBlobDownload(blob, `${filePrefix}_Kunci_Jawaban_Master.pdf`);
+    trackUsage('export_pdf', 'Matriks Kunci');
   };
 
   const handleDownloadWord = async () => {
@@ -27,6 +29,7 @@ export const AnswerMatrixView: React.FC<AnswerMatrixViewProps> = ({ exam, varian
     try {
       const blob = await buildMasterKeyDocxBlob(exam, variants);
       triggerBlobDownload(blob, `${filePrefix}_Kunci_Jawaban_Master.docx`);
+      trackUsage('export_docx', 'Matriks Kunci');
     } finally {
       setIsExportingWord(false);
     }

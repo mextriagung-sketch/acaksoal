@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import express from 'express';
 import type { NextFunction, Request, Response } from 'express';
+import fs from 'fs/promises';
 import multer from 'multer';
 import mammoth from 'mammoth';
 import path from 'path';
@@ -8,6 +9,159 @@ import { GoogleGenAI, ThinkingLevel, Type } from '@google/genai';
 import { createServer as createViteServer } from 'vite';
 
 const PORT = 3000;
+const USAGE_DATA_DIR = path.resolve(process.cwd(), 'data');
+const USAGE_DATA_FILE = path.join(USAGE_DATA_DIR, 'ip_usage.json');
+
+interface IpUsageRecord {
+  ip: string;
+  totalUses: number;
+  visits: number;
+  parses: number;
+  exports: number;
+  lastAction: string;
+  deviceSummary: string;
+  firstSeen: string;
+  lastSeen: string;
+}
+
+type UsageAction =
+  | 'visit'
+  | 'parse_exam'
+  | 'load_sample'
+  | 'reshuffle'
+  | 'export_pdf'
+  | 'export_docx'
+  | 'export_zip';
+
+const ACTION_LABELS: Record<UsageAction, string> = {
+  visit: 'Membuka Aplikasi',
+  parse_exam: 'Ekstrak Soal PDF/Word',
+  load_sample: 'Memuat Contoh Naskah',
+  reshuffle: 'Mengacak Ulang Paket',
+  export_pdf: 'Unduh Dokumen PDF',
+  export_docx: 'Unduh Dokumen Word',
+  export_zip: 'Unduh Arsip ZIP',
+};
+
+let usageCache: Record<string, IpUsageRecord> | null = null;
+let writeQueue: Promise<void> = Promise.resolve();
+
+function normalizeIp(raw: string): string {
+  const trimmed = raw.trim();
+  if (!trimmed) return 'Tidak diketahui';
+  if (trimmed.startsWith('::ffff:')) {
+    return trimmed.slice(7);
+  }
+  if (trimmed === '::1') {
+    return '127.0.0.1';
+  }
+  return trimmed;
+}
+
+function getClientIp(req: Request): string {
+  const forwarded = req.headers['x-forwarded-for'];
+  if (typeof forwarded === 'string' && forwarded.trim()) {
+    const first = forwarded.split(',')[0];
+    if (first) return normalizeIp(first);
+  } else if (Array.isArray(forwarded) && forwarded.length > 0) {
+    return normalizeIp(forwarded[0]);
+  }
+  const realIp = req.headers['x-real-ip'];
+  if (typeof realIp === 'string' && realIp.trim()) {
+    return normalizeIp(realIp);
+  }
+  return normalizeIp(req.ip || req.socket.remoteAddress || '');
+}
+
+function parseDeviceSummary(uaHeader: string | undefined): string {
+  const ua = uaHeader || '';
+  if (!ua) return 'Perangkat tidak diketahui';
+
+  let browser = 'Browser';
+  if (/Edg\//i.test(ua)) browser = 'Edge';
+  else if (/Chrome\//i.test(ua) && !/Edg\//i.test(ua)) browser = 'Chrome';
+  else if (/Firefox\//i.test(ua)) browser = 'Firefox';
+  else if (/Safari\//i.test(ua) && !/Chrome\//i.test(ua)) browser = 'Safari';
+  else if (/curl\//i.test(ua)) browser = 'CLI/curl';
+
+  let os = '';
+  if (/Windows/i.test(ua)) os = 'Windows';
+  else if (/Android/i.test(ua)) os = 'Android';
+  else if (/iPhone|iPad|iOS/i.test(ua)) os = 'iOS';
+  else if (/Mac OS X|Macintosh/i.test(ua)) os = 'macOS';
+  else if (/Linux/i.test(ua)) os = 'Linux';
+
+  return os ? `${browser} · ${os}` : browser;
+}
+
+async function loadUsageStore(): Promise<Record<string, IpUsageRecord>> {
+  if (usageCache) return usageCache;
+  try {
+    const content = await fs.readFile(USAGE_DATA_FILE, 'utf-8');
+    const parsed = JSON.parse(content);
+    if (parsed && typeof parsed === 'object') {
+      usageCache = parsed as Record<string, IpUsageRecord>;
+      return usageCache;
+    }
+  } catch {
+    // File does not exist yet
+  }
+  usageCache = {};
+  return usageCache;
+}
+
+function persistUsageStore(store: Record<string, IpUsageRecord>): void {
+  const snapshot = JSON.stringify(store, null, 2);
+  writeQueue = writeQueue
+    .then(async () => {
+      await fs.mkdir(USAGE_DATA_DIR, { recursive: true });
+      await fs.writeFile(USAGE_DATA_FILE, snapshot, 'utf-8');
+    })
+    .catch((err) => {
+      console.error('Failed to persist IP usage log:', err);
+    });
+}
+
+async function recordIpUsage(
+  req: Request,
+  action: UsageAction,
+  detail?: string
+): Promise<IpUsageRecord> {
+  const store = await loadUsageStore();
+  const ip = getClientIp(req);
+  const now = new Date().toISOString();
+  const deviceSummary = parseDeviceSummary(req.headers['user-agent']);
+  const actionText = detail ? `${ACTION_LABELS[action]} (${detail})` : ACTION_LABELS[action];
+
+  const existing = store[ip];
+  if (existing) {
+    existing.totalUses += 1;
+    if (action === 'visit') existing.visits += 1;
+    if (action === 'parse_exam' || action === 'load_sample') existing.parses += 1;
+    if (action === 'export_pdf' || action === 'export_docx' || action === 'export_zip') {
+      existing.exports += 1;
+    }
+    existing.lastAction = actionText;
+    existing.deviceSummary = deviceSummary;
+    existing.lastSeen = now;
+  } else {
+    store[ip] = {
+      ip,
+      totalUses: 1,
+      visits: action === 'visit' ? 1 : 0,
+      parses: action === 'parse_exam' || action === 'load_sample' ? 1 : 0,
+      exports:
+        action === 'export_pdf' || action === 'export_docx' || action === 'export_zip' ? 1 : 0,
+      lastAction: actionText,
+      deviceSummary,
+      firstSeen: now,
+      lastSeen: now,
+    };
+  }
+
+  persistUsageStore(store);
+  return store[ip];
+}
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -278,10 +432,53 @@ function sendSseEvent(res: Response, payload: Record<string, unknown>) {
 
 async function startServer() {
   const app = express();
+  app.set('trust proxy', true);
   app.use(express.json({ limit: '5mb' }));
 
   app.get('/api/health', (_req, res) => {
     res.json({ ok: true });
+  });
+
+  app.get('/api/usage', async (req: Request, res: Response) => {
+    const store = await loadUsageStore();
+    const users = Object.values(store).sort(
+      (a, b) => new Date(b.lastSeen).getTime() - new Date(a.lastSeen).getTime()
+    );
+    const summary = users.reduce(
+      (acc, u) => {
+        acc.uniqueIps += 1;
+        acc.totalUses += u.totalUses;
+        acc.totalParses += u.parses;
+        acc.totalExports += u.exports;
+        return acc;
+      },
+      { uniqueIps: 0, totalUses: 0, totalParses: 0, totalExports: 0 }
+    );
+    res.json({
+      currentIp: getClientIp(req),
+      summary,
+      users,
+    });
+  });
+
+  app.post('/api/usage/track', async (req: Request, res: Response) => {
+    const action = req.body?.action as UsageAction;
+    const validActions: UsageAction[] = [
+      'visit',
+      'parse_exam',
+      'load_sample',
+      'reshuffle',
+      'export_pdf',
+      'export_docx',
+      'export_zip',
+    ];
+    if (!validActions.includes(action)) {
+      res.status(400).json({ error: 'Jenis aktivitas tidak valid.' });
+      return;
+    }
+    const detail = typeof req.body?.detail === 'string' ? req.body.detail.slice(0, 80) : undefined;
+    const record = await recordIpUsage(req, action, detail);
+    res.json({ ok: true, record });
   });
 
   app.post('/api/parse-exam', upload.single('file'), async (req: Request, res: Response) => {
@@ -408,6 +605,7 @@ async function startServer() {
             'Tidak ada butir soal yang berhasil dikenali dari dokumen tersebut. Pastikan file berisi daftar pertanyaan ujian yang jelas.',
         });
       } else {
+        await recordIpUsage(req, 'parse_exam', sourceName);
         sendSseEvent(res, { type: 'done', data: normalized });
       }
     } catch (err: any) {

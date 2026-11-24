@@ -9,8 +9,10 @@ import { VariantConfigSidebar } from './components/VariantConfigSidebar';
 import { QuestionBankEditor } from './components/QuestionBankEditor';
 import { PrintPreviewSheet } from './components/PrintPreviewSheet';
 import { AnswerMatrixView } from './components/AnswerMatrixView';
+import { IpUsageView } from './components/IpUsageView';
+import { trackUsage } from './lib/usageTracker';
 
-type ActiveTab = 'upload' | 'bank' | 'preview' | 'matrix';
+type ActiveTab = 'upload' | 'bank' | 'preview' | 'matrix' | 'usage';
 
 const DEFAULT_CONFIG: ShuffleConfig = {
   variantCount: 4,
@@ -39,6 +41,10 @@ export default function App() {
   }, [examData, config, seed]);
 
   useEffect(() => {
+    trackUsage('visit');
+  }, []);
+
+  useEffect(() => {
     if (variants.length > 0 && !variants.some((v) => v.id === activeVariantId)) {
       setActiveVariantId(variants[0].id);
     }
@@ -51,11 +57,13 @@ export default function App() {
   };
 
   const handleLoadSample = () => {
+    trackUsage('load_sample');
     const cloned: ParsedExamData = JSON.parse(JSON.stringify(SAMPLE_EXAM_DATA));
     handleExamLoaded(cloned);
   };
 
   const handleReshuffle = () => {
+    trackUsage('reshuffle');
     setSeed((prev) => (prev + 48611) % 2147483647);
   };
 
@@ -64,6 +72,7 @@ export default function App() {
     setIsExportingZip(true);
     try {
       await exportAllVariantsZip(examData, variants, config, format);
+      trackUsage('export_zip', format.toUpperCase());
     } finally {
       setIsExportingZip(false);
     }
@@ -74,6 +83,7 @@ export default function App() {
     { id: 'bank', label: 'Bank Soal', requiresExam: true },
     { id: 'preview', label: 'Pratinjau Cetak', requiresExam: true },
     { id: 'matrix', label: 'Matriks Kunci', requiresExam: true },
+    { id: 'usage', label: 'Pengguna IP' },
   ];
 
   const mcqCount = examData
@@ -146,32 +156,38 @@ export default function App() {
           </div>
         </div>
 
-        {/* Mobile navigation strip when exam is loaded */}
-        {examData && (
-          <div className="flex md:hidden items-center gap-4 overflow-x-auto border-t border-slate-100 px-6 py-2 text-xs font-medium">
-            {navItems.map((item) => {
-              const isActive = activeTab === item.id;
-              return (
-                <button
-                  key={`mobile-${item.id}`}
-                  type="button"
-                  onClick={() => setActiveTab(item.id)}
-                  className={`py-1 whitespace-nowrap shrink-0 ${
-                    isActive
-                      ? 'font-semibold text-blue-700 underline underline-offset-4'
+        {/* Mobile navigation strip */}
+        <div className="flex md:hidden items-center gap-4 overflow-x-auto border-t border-slate-100 px-6 py-2 text-xs font-medium">
+          {navItems.map((item) => {
+            const disabled = Boolean(item.requiresExam && !examData);
+            const isActive = activeTab === item.id;
+            return (
+              <button
+                key={`mobile-${item.id}`}
+                type="button"
+                disabled={disabled}
+                onClick={() => setActiveTab(item.id)}
+                className={`py-1 whitespace-nowrap shrink-0 ${
+                  isActive
+                    ? 'font-semibold text-blue-700 underline underline-offset-4'
+                    : disabled
+                      ? 'text-slate-300'
                       : 'text-slate-600'
-                  }`}
-                >
-                  {item.label}
-                </button>
-              );
-            })}
-          </div>
-        )}
+                }`}
+              >
+                {item.label}
+              </button>
+            );
+          })}
+        </div>
       </header>
 
       {/* Main Content */}
-      {!examData || activeTab === 'upload' ? (
+      {activeTab === 'usage' ? (
+        <main className="flex-1">
+          <IpUsageView />
+        </main>
+      ) : !examData || activeTab === 'upload' ? (
         <main className="flex-1">
           <UploadWorkspace
             onExamLoaded={handleExamLoaded}

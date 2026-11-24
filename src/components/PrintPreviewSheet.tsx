@@ -6,6 +6,7 @@ import {
   buildVariantPdfBlob,
   triggerBlobDownload,
 } from '../lib/exporters';
+import { trackUsage } from '../lib/usageTracker';
 
 interface PrintPreviewSheetProps {
   exam: ParsedExamData;
@@ -34,6 +35,7 @@ export const PrintPreviewSheet: React.FC<PrintPreviewSheetProps> = ({
   const handleDownloadPdf = () => {
     const blob = buildVariantPdfBlob(exam, activeVariant, config);
     triggerBlobDownload(blob, `${baseFileName}.pdf`);
+    trackUsage('export_pdf', activeVariant.label);
   };
 
   const handleDownloadDocx = async () => {
@@ -41,6 +43,7 @@ export const PrintPreviewSheet: React.FC<PrintPreviewSheetProps> = ({
     try {
       const blob = await buildVariantDocxBlob(exam, activeVariant, config);
       triggerBlobDownload(blob, `${baseFileName}.docx`);
+      trackUsage('export_docx', activeVariant.label);
     } finally {
       setIsExportingDocx(false);
     }

@@ -64,3 +64,36 @@ export interface ExamVariant {
   seed: number;
   questions: ShuffledQuestion[];
 }
+
+export type UsageActionType =
+  | 'visit'
+  | 'parse_exam'
+  | 'load_sample'
+  | 'reshuffle'
+  | 'export_pdf'
+  | 'export_docx'
+  | 'export_zip';
+
+export interface IpUsageRecord {
+  ip: string;
+  totalUses: number;
+  visits: number;
+  parses: number;
+  exports: number;
+  lastAction: string;
+  deviceSummary: string;
+  firstSeen: string;
+  lastSeen: string;
+}
+
+export interface UsageStatsResponse {
+  currentIp: string;
+  summary: {
+    uniqueIps: number;
+    totalUses: number;
+    totalParses: number;
+    totalExports: number;
+  };
+  users: IpUsageRecord[];
+}
+

@@ -9,6 +9,10 @@ import {
   Shuffle,
 } from 'lucide-react';
 import type { ParsedExamData } from '../types/exam';
+import {
+  parseExamFileInBrowser,
+  parseExamFromRawText,
+} from '../lib/localExamParser';
 
 interface UploadWorkspaceProps {
   onExamLoaded: (data: ParsedExamData) => void;
@@ -17,11 +21,21 @@ interface UploadWorkspaceProps {
   onCancel?: () => void;
 }
 
+class EndpointNotFoundError extends Error {
+  constructor() {
+    super('API_NOT_FOUND');
+  }
+}
+
 async function consumeParseResponse(
   res: Response,
   onStatus: (msg: string) => void
 ): Promise<ParsedExamData> {
   const contentType = res.headers.get('content-type') || '';
+
+  if (res.status === 404 || (res.ok && contentType.includes('text/html'))) {
+    throw new EndpointNotFoundError();
+  }
 
   if (contentType.includes('text/event-stream')) {
     const reader = res.body?.getReader();
@@ -120,6 +134,17 @@ export const UploadWorkspace: React.FC<UploadWorkspaceProps> = ({
       const parsed = await consumeParseResponse(res, setStatusMessage);
       onExamLoaded(parsed);
     } catch (err: any) {
+      if (err instanceof EndpointNotFoundError) {
+        try {
+          setStatusMessage(`Membaca ${file.name} langsung di browser...`);
+          const localParsed = await parseExamFileInBrowser(file);
+          onExamLoaded(localParsed);
+          return;
+        } catch (localErr: any) {
+          setErrorMsg(localErr?.message || 'Gagal membaca dokumen di browser.');
+          return;
+        }
+      }
       setErrorMsg(err?.message || 'Terjadi kesalahan saat membaca dokumen.');
     } finally {
       setIsParsing(false);
@@ -148,6 +173,21 @@ export const UploadWorkspace: React.FC<UploadWorkspaceProps> = ({
       const parsed = await consumeParseResponse(res, setStatusMessage);
       onExamLoaded(parsed);
     } catch (err: any) {
+      if (err instanceof EndpointNotFoundError) {
+        try {
+          const localParsed = parseExamFromRawText(pastedText, 'Naskah_Teks_Langsung.txt');
+          if (localParsed.questions.length === 0) {
+            throw new Error(
+              'Tidak ada butir soal bernomor yang terdeteksi. Pastikan tiap soal diawali nomor (misalnya: 1. Pertanyaan...).'
+            );
+          }
+          onExamLoaded(localParsed);
+          return;
+        } catch (localErr: any) {
+          setErrorMsg(localErr?.message || 'Gagal memproses teks soal.');
+          return;
+        }
+      }
       setErrorMsg(err?.message || 'Terjadi kesalahan saat memproses teks soal.');
     } finally {
       setIsParsing(false);
