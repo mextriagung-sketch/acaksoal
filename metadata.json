@@ -1,0 +1,6 @@
+{
+  "name": "AcakSoal",
+  "description": "Aplikasi pengacak soal ujian sekolah dari dokumen PDF atau Word (.docx) untuk menghasilkan variasi paket ujian dan kunci jawaban siap cetak dalam format PDF dan Word.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
